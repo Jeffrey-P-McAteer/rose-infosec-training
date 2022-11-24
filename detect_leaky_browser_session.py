@@ -196,7 +196,7 @@ try:
       #print(f'packet = {p}')
       
       source_ip = maybe(lambda: p.ip.src)
-      dest_ip = maybe(lambda: p.eth.dst)
+      dest_ip = maybe(lambda: p.ip.dst)
       
       if source_ip is not None and dest_ip is not None:
         # We know we have IP comms, detect type of comms.
