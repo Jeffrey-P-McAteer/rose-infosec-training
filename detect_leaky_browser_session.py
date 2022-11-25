@@ -52,6 +52,7 @@ MAC_INFO_DICT = {
   'c8:c7:50:ec:4e:11': "Primary Gateway wlan0 (serves 5ghz and 2.4ghz spectrums)", # Saw c8:c7:50:ec:4e:11 using 2.4ghz network
   'd4:be:d9:84:6d:1d': "Rose's Dell Laptop",
   '74:38:b7:2f:33:be': "Family Canon Printer",
+  'dc:fe:07:13:88:42': "Family PC",
 
 }
 def enrich_mac_info(mac_addr):
@@ -114,9 +115,9 @@ pyw.down(interface)
 pyw.modeset(interface, 'monitor')
 pyw.up(interface)
 
-max_seconds_between_channel_hop = 20
-min_seconds_to_listen_to_channel_for = 1.5
-packets_to_cap_before_adjusting_channel_hop_durations = 20
+max_seconds_between_channel_hop = 25
+min_seconds_to_listen_to_channel_for = 5
+packets_to_cap_before_adjusting_channel_hop_durations = 100
 packets_to_print_summaries_after = 10
 exit_flag = False
 
@@ -167,6 +168,8 @@ def channel_hop_t():
       fraction_of_total_packets = float(channels_to_tune_to_i_packet_count) / total_packets
 
       sleep_interval_s = max_seconds_between_channel_hop * fraction_of_total_packets
+      # Bump for no reason (I'll assume 2-3 channels are generally active:
+      sleep_interval_s *= 2.0
       if sleep_interval_s < min_seconds_to_listen_to_channel_for and per_channel_packet_count_d.get(channels_to_tune_to_i, 0) > 0:
         sleep_interval_s = min_seconds_to_listen_to_channel_for
         # Do not abandon non-empty channels
