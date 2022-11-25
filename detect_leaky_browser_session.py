@@ -255,6 +255,12 @@ try:
           if hasattr(p, 'mdns'):
             communication_type = f'MDNS query dns_qry_name=f{maybe(lambda: p.mdns.dns_qry_name)}'
 
+          elif p[p.transport_layer].srcport == '17500' and p[p.transport_layer].dstport == '17500':
+            communication_type = f'dropbox local LAN sync heartbeat; srcport={maybe(lambda: p.udp.srcport)} dstport={maybe(lambda: p.udp.dstport)} data={maybe(lambda: p.udp.payload)}'
+
+          elif p[p.transport_layer].dstport == '1900':
+            communication_type = f'UPnP control/sync message; srcport={maybe(lambda: p.udp.srcport)} dstport={maybe(lambda: p.udp.dstport)} data={maybe(lambda: p.udp.payload)}'
+
           else:
             communication_type = f'Unknown UDP data srcport={maybe(lambda: p.udp.srcport)} dstport={maybe(lambda: p.udp.dstport)} data={maybe(lambda: p.udp.payload)}'
 
