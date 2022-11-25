@@ -50,11 +50,13 @@ MAC_INFO_DICT = {
   '60:f2:62:e5:ee:94': "Jeffrey's thinkpad wlan1",
   '3c:33:00:20:48:02': "Jeffrey's thinkpad wlan1 (removable 2.4ghz card)",
   'c8:c7:50:ec:4e:11': "Primary Gateway wlan0 (serves 5ghz and 2.4ghz spectrums)", # Saw c8:c7:50:ec:4e:11 using 2.4ghz network
-  '': "",
+  'd4:be:d9:84:6d:1d': "Rose's Dell Laptop",
+  '74:38:b7:2f:33:be': "Family Canon Printer",
+
 }
 def enrich_mac_info(mac_addr):
   global MAC_INFO_DICT
-  return MAC_INFO_DICT.get(mac_addr, mac_addr)
+  return MAC_INFO_DICT.get(mac_addr.lower(), mac_addr)
 
 def enrich_ip_addr(ip_addr):
   mac_addr = ip_addr
@@ -112,7 +114,10 @@ pyw.down(interface)
 pyw.modeset(interface, 'monitor')
 pyw.up(interface)
 
-seconds_between_channel_hop = 12
+max_seconds_between_channel_hop = 20
+min_seconds_to_listen_to_channel_for = 1.5
+packets_to_cap_before_adjusting_channel_hop_durations = 20
+packets_to_print_summaries_after = 10
 exit_flag = False
 
 current_channel = channels_to_tune_to[0]
@@ -129,11 +134,12 @@ def channel_hop_t():
 
   channels_to_tune_to_i = -1
 
-  sleep_interval_s = seconds_between_channel_hop
+  sleep_interval_s = max_seconds_between_channel_hop / 3
   
   while not exit_flag:
     
-    time.sleep(sleep_interval_s)
+    time.sleep(max(sleep_interval_s, min_seconds_to_listen_to_channel_for))
+    # ^ if sleep_interval_s falls under, we immediately move on to the next channel.
     
     # Tune to next channel in list
     channels_to_tune_to_i += 1
@@ -145,7 +151,8 @@ def channel_hop_t():
       pyw.chset(interface, int(channels_to_tune_to[channels_to_tune_to_i]), channel_band_width)
       current_channel = channels_to_tune_to[channels_to_tune_to_i]
     except:
-      traceback.print_exc()
+      if not 'Device or resource busy' in traceback.format_exc():
+        traceback.print_exc()
       # Go back to previous channel
       channels_to_tune_to_i -= 1
       if channels_to_tune_to_i < 0:
@@ -154,13 +161,19 @@ def channel_hop_t():
     # Now adjust sleep_interval_s based on what metadata we have for different channels.
     
     total_packets = sum([v for k,v in per_channel_packet_count_d.items()])
-    average_packets_per_channel = total_packets / max(len(channels_to_tune_to), 1)
-    average_packets_per_channel *= 0.8 # Hedge towards under-performing channels a bit more
+    if total_packets > packets_to_cap_before_adjusting_channel_hop_durations:
+      # Compute sleep_interval_s based off channels_to_tune_to_i's fraction of total packets
+      channels_to_tune_to_i_packet_count = per_channel_packet_count_d.get(channels_to_tune_to_i, 0)
+      fraction_of_total_packets = float(channels_to_tune_to_i_packet_count) / total_packets
 
-    if per_channel_packet_count_d.get(channels_to_tune_to_i, 0) < average_packets_per_channel:
-      sleep_interval_s = 5
+      sleep_interval_s = max_seconds_between_channel_hop * fraction_of_total_packets
+      if sleep_interval_s < min_seconds_to_listen_to_channel_for and per_channel_packet_count_d.get(channels_to_tune_to_i, 0) > 0:
+        sleep_interval_s = min_seconds_to_listen_to_channel_for
+        # Do not abandon non-empty channels
+
     else:
-      sleep_interval_s = seconds_between_channel_hop
+      # Still capping initial packets
+      sleep_interval_s = (max_seconds_between_channel_hop / 3)
 
 
 hop_thread = threading.Thread(target=channel_hop_t, args=())
@@ -177,19 +190,22 @@ try:
     bpf_filter=bpf_filter,
   )
 
+  last_summary_total_packets = 0
+
   while True:
     
     # Metadata
     total_packets = sum([v for k,v in per_channel_packet_count_d.items()])
-    average_packets_per_channel = total_packets / max(len(per_channel_packet_count_d), 1)
-    print(f'Channel packet count summary ({total_packets:,} total):')
-    for k,v in per_channel_packet_count_d.items():
-      maybe_star = '*' if k == current_channel else ''
-      maybe_inactive = '-' if v < average_packets_per_channel else ''
-      print(f'{k}{maybe_star}{maybe_inactive}> {v:,} packets')
+    if total_packets - last_summary_total_packets >= packets_to_print_summaries_after:
+      print(f'Channel packet count summary ({total_packets:,} total):')
+      for k,v in per_channel_packet_count_d.items():
+        maybe_star = '*' if k == current_channel else ''
+        print(f'{k}{maybe_star}> {v:,} packets')
+      last_summary_total_packets = total_packets
 
     # Sniff; not sure how much packet_count affects input distributions
-    for p in capture.sniff_continuously(packet_count=random.choice([1,2,5,10,10,12,12,12,20,20,20])):
+    #for p in capture.sniff_continuously(packet_count=random.choice([1,2,5,10,10,12,12,12,20,20,20])):
+    for p in capture.sniff_continuously(packet_count=1):
       all_packets.append(p)
       per_channel_packet_count_d[current_channel] = per_channel_packet_count_d.get(current_channel, 0) + 1
 
@@ -201,22 +217,48 @@ try:
       if source_ip is not None and dest_ip is not None:
         # We know we have IP comms, detect type of comms.
         communication_type = 'UNK'
+        communication_details = ''
         if hasattr(p, 'udp') and p[p.transport_layer].dstport == '53':
           communication_type = 'DNS'
         elif hasattr(p, 'tcp'):
           if p[p.transport_layer].dstport == '80':
             communication_type = 'Unencrypted HTTP data'
 
+            # Pull out webpage GET/url etc stuff
+            communication_details = maybe(lambda: p.http.request_full_uri )
+            if communication_details is None:
+              if not maybe(lambda: p.http.field_names) is None:
+                print()
+                print(f'Warning, could not get p.http.request_full_uri; p.http.field_names = {maybe(lambda: p.http.field_names)}')
+                print()
+                time.sleep(0.5)
+              else:
+                # Must not be TCP, dump the contents?
+                communication_type = 'Unknown TCP data over port 80'
+                communication_details = f'TCP message length = {maybe(lambda: p.tcp.len )} bytes'
+
+
           elif p[p.transport_layer].dstport == '443':
             communication_type = 'Encrypted HTTP data'
 
+            communication_details = f'TCP message length = {maybe(lambda: p.tcp.len )} bytes'
+
           else:
-            communication_type = 'Unknown TCP data'
+            communication_type = f'Unknown TCP data srcport={maybe(lambda: p.tcp.srcport)} dstport={maybe(lambda: p.tcp.dstport)} length = {maybe(lambda: p.tcp.len )} bytes'
 
         elif hasattr(p, 'udp'):
-          communication_type = 'Unknown UDP data'
+
+          # Is this an mdns request? (for bonjour and noconfig network devices)
+          if hasattr(p, 'mdns'):
+            communication_type = f'MDNS query dns_qry_name=f{maybe(lambda: p.mdns.dns_qry_name)}'
+
+          else:
+            communication_type = f'Unknown UDP data srcport={maybe(lambda: p.udp.srcport)} dstport={maybe(lambda: p.udp.dstport)} data={maybe(lambda: p.udp.payload)}'
+
         
         print(f'{source_ip} ({enrich_ip_addr(source_ip)}) -> {dest_ip} ({enrich_ip_addr(dest_ip)}): {communication_type}')
+        if communication_details is not None and len(communication_details) > 1:
+          print(f'> {communication_details[:512]}')
 
 except:
   traceback.print_exc()
