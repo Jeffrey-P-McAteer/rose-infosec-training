@@ -73,7 +73,12 @@ def enrich_ip_addr(ip_addr):
 wireless_ifaces = pyw.winterfaces()
 print(f'Detected {len(wireless_ifaces)} interfaces:')
 for i, interface in enumerate(wireless_ifaces):
-  print(f' - {interface}')
+  iface_addr = maybe(lambda: pyw.ifaddrget(pyw.getcard(interface))[0] )
+  if iface_addr is None:
+    iface_addr = ''
+  else:
+    iface_addr = f'(address in use = {iface_addr})'
+  print(f' - {interface} {iface_addr}')
 
 interface_name = wireless_ifaces[len(wireless_ifaces)-1] if len(wireless_ifaces) > 0 else 'Error: no interfaces!' # str(input('Which interface would you like to capture? '))
 print(f'Enter an interface name to capture with:')
