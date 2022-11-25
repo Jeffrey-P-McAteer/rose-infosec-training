@@ -19,6 +19,10 @@ getmac = importinate('getmac', 'get-mac')
 pyric = importinate('pyric', 'PyRIC') # TODO investigate https://github.com/wifiphisher/wifiphisher ?
 import pyric.pyw as pyw
 
+# used to identify unknown device manufacturers
+mac_vendor_lookup = importinate('mac_vendor_lookup', 'mac-vendor-lookup')
+from mac_vendor_lookup import MacLookup
+
 
 # Utilities
 
@@ -55,9 +59,18 @@ MAC_INFO_DICT = {
   'dc:fe:07:13:88:42': "Family PC",
 
 }
+MAC_m = MacLookup()
 def enrich_mac_info(mac_addr):
   global MAC_INFO_DICT
-  return MAC_INFO_DICT.get(mac_addr.lower(), mac_addr)
+  mac_addr = mac_addr.lower()
+  if mac_addr in MAC_INFO_DICT:
+    return MAC_INFO_DICT[mac_addr]
+  else:
+    try:
+      return MAC_m.lookup(mac_addr)
+    except:
+      traceback.print_exc()
+  return mac_addr
 
 def enrich_ip_addr(ip_addr):
   mac_addr = ip_addr
@@ -89,11 +102,12 @@ if not 'monitor' in pyw.devmodes(interface):
   sys.exit(1)
 
 try:
-  MAC_INFO_DICT[pyw.macget(interface)] = 'This machine'
+  MAC_INFO_DICT[str(pyw.macget(interface)).lower()] = 'This machine'
 except:
   pass
 
 channels_to_tune_to = '1,2,3,4,5,6,7,8,9,10,11'
+#channels_to_tune_to = '1,2,3,6,10,11'
 print(f'Enter a list of channels to tune between; only one channel may be listened to at a time.')
 print(f'Note that channels 12, 13, and 14 require residency outside north america to avoid interference with flight radar equiptment (See https://en.wikipedia.org/wiki/List_of_WLAN_channels#2.4_GHz_(802.11b/g/n/ax) )')
 channels_to_tune_to = input_with_prefill('> ', channels_to_tune_to).strip()
@@ -120,8 +134,8 @@ pyw.down(interface)
 pyw.modeset(interface, 'monitor')
 pyw.up(interface)
 
-max_seconds_between_channel_hop = 25
-min_seconds_to_listen_to_channel_for = 5
+max_seconds_between_channel_hop = 30
+min_seconds_to_listen_to_channel_for = 6
 packets_to_cap_before_adjusting_channel_hop_durations = 100
 packets_to_print_summaries_after = 10
 exit_flag = False
@@ -157,6 +171,10 @@ def channel_hop_t():
       pyw.chset(interface, int(channels_to_tune_to[channels_to_tune_to_i]), channel_band_width)
       current_channel = channels_to_tune_to[channels_to_tune_to_i]
     except:
+      if 'Invalid argument' in traceback.format_exc() and not 'busy' in traceback.format_exc():
+        # Remove this channel from the list of things we hop to
+        channels_to_tune_to.pop(channels_to_tune_to_i)
+
       if not 'Device or resource busy' in traceback.format_exc():
         traceback.print_exc()
       # Go back to previous channel
@@ -273,6 +291,13 @@ try:
         print(f'{source_ip} ({enrich_ip_addr(source_ip)}) -> {dest_ip} ({enrich_ip_addr(dest_ip)}): {communication_type}')
         if communication_details is not None and len(communication_details) > 1:
           print(f'> {communication_details[:512]}')
+
+        try:
+          subprocess.run([
+            'ding', f'{source_ip} ({enrich_ip_addr(source_ip)}) -> {dest_ip} ({enrich_ip_addr(dest_ip)}): {communication_type} - {maybe(lambda: communication_details[:512])}'
+          ])
+        except:
+          traceback.print_exc()
 
 except:
   traceback.print_exc()
