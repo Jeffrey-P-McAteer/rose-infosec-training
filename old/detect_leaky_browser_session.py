@@ -11,6 +11,7 @@ import time
 import random
 
 # Our helper
+sys.path.append(os.path.abspath('..'))
 from libhelper import importinate
 
 # 3rdparty code

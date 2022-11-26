@@ -5,6 +5,7 @@
 
 import time
 
+sys.path.append(os.path.abspath('..'))
 from libhelper import importinate # Our helper code
 
 dns = importinate('dns', 'dnspython')
