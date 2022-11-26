@@ -99,9 +99,12 @@ for channel in interface_channels:
 
 active_channel = interface_channels[0]
 
+last_wlan_src_addr = ''
+
 # used in capture.apply_on_packets
 def with_packet(pkt):
   global active_channel
+  global last_wlan_src_addr
   #print(f'Channel {active_channel} packet = {}')
   wlan_src_addr = maybe(lambda: pkt.wlan.addr )
   try:
@@ -110,7 +113,7 @@ def with_packet(pkt):
     src_port = pkt[pkt.transport_layer].srcport
     dst_addr = pkt.ip.dst
     dst_port = pkt[pkt.transport_layer].dstport
-    print(f'Channel {active_channel}: {protocol}  {src_addr}:{src_port} --> {dst_addr}:{dst_port}')
+    print(f'Channel {active_channel}: {protocol} wlan.addr={wlan_src_addr} {src_addr}:{src_port} --> {dst_addr}:{dst_port}')
   except AttributeError as e:
     #print(f'Channel {active_channel}: non-tcp/ip packet: {dir(pkt)}')
     #print(f'Channel {active_channel}: non-tcp/ip packet: transport_layer={maybe(lambda: pkt.transport_layer)} wlan={maybe(lambda: pkt.wlan)} wlan={maybe(lambda: [k+":"+str(maybe(lambda: f"pkt.wlan.{k} = {getattr(pkt.wlan, k)}")) for k in dir(pkt.wlan)] )}')
@@ -119,7 +122,9 @@ def with_packet(pkt):
       pkt_contents = 'RADIOTAP'
     else:
       pkt_contents = pkt_contents[:64]
-    print(f'Channel {active_channel}: non-ip packet from {wlan_src_addr} ({enrich_mac(wlan_src_addr)}): {pkt_contents}')
+    if last_wlan_src_addr != wlan_src_addr:
+      print(f'Channel {active_channel}: non-ip packet from {wlan_src_addr} ({enrich_mac(wlan_src_addr)}): {pkt_contents}')
+      last_wlan_src_addr = wlan_src_addr
 
 
 # Assign callback
